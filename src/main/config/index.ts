@@ -1,0 +1,1 @@
+﻿export { getAppConfig, patchAppConfig, getAppConfigSync } from './app'

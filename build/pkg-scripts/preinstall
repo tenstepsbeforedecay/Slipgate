@@ -1,0 +1,7 @@
+#!/bin/sh
+
+# Slipgate macOS pre-install — currently a no-op. Kept as a placeholder
+# because electron-builder's pkg target references this file in
+# electron-builder.yml; removing the file would break Mac builds.
+
+exit 0

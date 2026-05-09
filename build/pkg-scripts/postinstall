@@ -1,0 +1,13 @@
+#!/bin/sh
+
+APP_NAME="Slipgate"
+CORRECT_PATH="/Applications/${APP_NAME}.app"
+WRONG_PATH="/Applications/${APP_NAME}.localized/${APP_NAME}.app"
+
+# --- Fix install path if installer created .localized directory ---
+if [ -d "$WRONG_PATH" ] && [ ! -d "$CORRECT_PATH" ]; then
+    mv "$WRONG_PATH" "$CORRECT_PATH"
+    rm -rf "/Applications/${APP_NAME}.localized"
+fi
+
+exit 0
