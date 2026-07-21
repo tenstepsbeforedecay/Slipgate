@@ -77,10 +77,14 @@ interface ZapretConfig {
   enabled: boolean
   autoStart?: boolean
   activeStrategy?: string          // file name of the .bat strategy
-  gameFilter?: boolean             // enable UDP/TCP >1023 filter
+  gameFilterMode?: 'off' | 'all' | 'tcp' | 'udp'   // mirrors service.bat's Game Filter menu
   ipsetMode?: 'none' | 'loaded' | 'any'
   bundlePath?: string              // override path to unpacked zapret folder
   useService?: boolean             // installed as Windows service
+  // Slipgate's own background check for new Zapret bundle releases (the
+  // "Доступно обновление Zapret" banner). Distinct from service.bat's own
+  // legacy update checker, which Slipgate always skips via NO_UPDATE_CHECK.
+  autoUpdateCheck?: boolean
   // Version of the unpacked Flowseal/zapret-discord-youtube bundle in
   // runtime/zapret. Set when the user installs/updates from the auto-
   // updater. Used to decide whether a newer GitHub release exists.

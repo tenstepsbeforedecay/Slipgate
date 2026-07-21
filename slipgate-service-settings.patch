@@ -1,0 +1,756 @@
+diff --git a/src/main/core/zapret-service-settings.ts b/src/main/core/zapret-service-settings.ts
+new file mode 100644
+index 0000000..490571a
+--- /dev/null
++++ b/src/main/core/zapret-service-settings.ts
+@@ -0,0 +1,184 @@
++import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
++import path from 'node:path'
++import { zapretBundleDir } from '../utils/dirs'
++import { getAppConfig, patchAppConfig } from '../config'
++
++/**
++ * These two settings mirror `service.bat`'s own "Game Filter" and "IPset
++ * Filter" menu items. Both are driven entirely by files inside the Zapret
++ * bundle (utils/game_filter.enabled, lists/ipset-all.txt) that
++ * general.bat itself reads on every launch — we don't reimplement any
++ * winws.exe argument logic here, we just manage the same files
++ * service.bat would, so running it manually afterwards stays in sync and
++ * nothing about the actual filtering behaviour changes underneath us.
++ *
++ * A running winws.exe reads these once at launch, so changes only take
++ * effect after Zapret is restarted — same as service.bat's own
++ * "Restart the zapret to apply the changes" note.
++ */
++
++export type GameFilterMode = 'off' | 'all' | 'tcp' | 'udp'
++export type IpsetFilterMode = 'none' | 'loaded' | 'any'
++
++// ---- Game Filter ----------------------------------------------------------
++
++function gameFilterFlagFile(): string {
++  return path.join(zapretBundleDir(), 'utils', 'game_filter.enabled')
++}
++
++/** Reads current mode straight from disk — source of truth, not config. */
++export function getGameFilterMode(): GameFilterMode {
++  const file = gameFilterFlagFile()
++  if (!existsSync(file)) return 'off'
++  try {
++    const firstLine = readFileSync(file, 'utf-8').split(/\r?\n/)[0]?.trim().toLowerCase()
++    if (firstLine === 'all' || firstLine === 'tcp' || firstLine === 'udp') return firstLine
++    return 'off'
++  } catch {
++    return 'off'
++  }
++}
++
++export async function setGameFilterMode(mode: GameFilterMode): Promise<GameFilterMode> {
++  const file = gameFilterFlagFile()
++  try {
++    if (mode === 'off') {
++      if (existsSync(file)) unlinkSync(file)
++    } else {
++      mkdirSync(path.dirname(file), { recursive: true })
++      writeFileSync(file, `${mode}\r\n`, 'utf-8')
++    }
++  } catch (e) {
++    throw new Error(`Не удалось изменить Game Filter: ${e instanceof Error ? e.message : String(e)}`)
++  }
++  const cfg = await getAppConfig()
++  await patchAppConfig({ zapret: { ...(cfg.zapret as ZapretConfig), gameFilterMode: mode } })
++  return mode
++}
++
++// ---- IPset Filter -----------------------------------------------------------
++//
++// service.bat cycles lists/ipset-all.txt through three states:
++//   loaded  — real curated IP ranges; filter targets only those IPs
++//   none    — file holds only a dummy documentation-only IP
++//             (203.0.113.113/32), so the filter never matches anything
++//   any     — file is empty, so the filter matches every destination IP
++//             on the affected ports (broadest, least selective)
++// Switching away from "loaded" backs the real list up to
++// ipset-all.txt.backup first; switching back restores it.
++
++const DUMMY_IP = '203.0.113.113/32'
++
++function ipsetListFile(): string {
++  return path.join(zapretBundleDir(), 'lists', 'ipset-all.txt')
++}
++function ipsetBackupFile(): string {
++  return `${ipsetListFile()}.backup`
++}
++
++function nonEmptyLines(content: string): string[] {
++  return content.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
++}
++
++export function getIpsetFilterMode(): IpsetFilterMode {
++  const file = ipsetListFile()
++  if (!existsSync(file)) return 'any'
++  let content: string
++  try {
++    content = readFileSync(file, 'utf-8')
++  } catch {
++    return 'loaded'
++  }
++  const lines = nonEmptyLines(content)
++  if (lines.length === 0) return 'any'
++  return lines.every((l) => l === DUMMY_IP) ? 'none' : 'loaded'
++}
++
++export interface IpsetFilterSnapshot {
++  mode: IpsetFilterMode
++  lines: number
++  hasBackup: boolean
++}
++
++export function getIpsetFilterSnapshot(): IpsetFilterSnapshot {
++  const file = ipsetListFile()
++  let lines = 0
++  try {
++    if (existsSync(file)) lines = nonEmptyLines(readFileSync(file, 'utf-8')).length
++  } catch { /* ignore */ }
++  return {
++    mode: getIpsetFilterMode(),
++    lines,
++    hasBackup: existsSync(ipsetBackupFile())
++  }
++}
++
++export async function setIpsetFilterMode(mode: IpsetFilterMode): Promise<IpsetFilterSnapshot> {
++  const file = ipsetListFile()
++  const backup = ipsetBackupFile()
++  const current = getIpsetFilterMode()
++
++  try {
++    mkdirSync(path.dirname(file), { recursive: true })
++
++    if (mode !== current) {
++      if (mode === 'loaded') {
++        if (!existsSync(backup)) {
++          throw new Error(
++            'Нет сохранённого списка для восстановления. Сначала загрузите ipset-список кнопкой «Обновить список».'
++          )
++        }
++        if (existsSync(file)) unlinkSync(file)
++        renameSync(backup, file)
++      } else {
++        // Leaving "loaded" for "none" or "any" — stash the real list first
++        // (if we're not already stashed) so "loaded" can restore it later.
++        if (current === 'loaded' && existsSync(file)) {
++          if (existsSync(backup)) unlinkSync(backup)
++          renameSync(file, backup)
++        }
++        writeFileSync(file, mode === 'none' ? `${DUMMY_IP}\r\n` : '', 'utf-8')
++      }
++    }
++  } catch (e) {
++    if (e instanceof Error && e.message.startsWith('Нет сохранённого списка')) throw e
++    throw new Error(`Не удалось переключить IPset Filter: ${e instanceof Error ? e.message : String(e)}`)
++  }
++
++  const cfg = await getAppConfig()
++  await patchAppConfig({ zapret: { ...(cfg.zapret as ZapretConfig), ipsetMode: mode } })
++  return getIpsetFilterSnapshot()
++}
++
++// Same source service.bat's own "Update IPSet List" menu item pulls from.
++const IPSET_URL =
++  'https://raw.githubusercontent.com/Flowseal/zapret-discord-youtube/refs/heads/main/.service/ipset-service.txt'
++
++/**
++ * Downloads the latest curated ipset list and installs it as the active
++ * ("loaded") list, discarding any stale backup — a freshly downloaded
++ * list is now the thing "loaded" should mean.
++ */
++export async function updateIpsetList(): Promise<IpsetFilterSnapshot> {
++  let text: string
++  try {
++    const res = await fetch(IPSET_URL, { headers: { 'User-Agent': 'Slipgate-Updater' } })
++    if (!res.ok) throw new Error(`HTTP ${res.status}`)
++    text = await res.text()
++  } catch (e) {
++    throw new Error(`Не удалось скачать ipset-список: ${e instanceof Error ? e.message : String(e)}`)
++  }
++  if (!text.trim()) throw new Error('Скачанный ipset-список пуст')
++
++  const file = ipsetListFile()
++  const backup = ipsetBackupFile()
++  mkdirSync(path.dirname(file), { recursive: true })
++  writeFileSync(file, text, 'utf-8')
++  if (existsSync(backup)) {
++    try { unlinkSync(backup) } catch { /* best-effort */ }
++  }
++
++  const cfg = await getAppConfig()
++  await patchAppConfig({ zapret: { ...(cfg.zapret as ZapretConfig), ipsetMode: 'loaded' } })
++  return getIpsetFilterSnapshot()
++}
+diff --git a/src/main/core/zapret.ts b/src/main/core/zapret.ts
+index 6de80c0..8525615 100644
+--- a/src/main/core/zapret.ts
++++ b/src/main/core/zapret.ts
+@@ -122,6 +122,29 @@ export async function installZapretBundle(
+   }
+ 
+   const dest = zapretRuntimeDir()
++
++  // Capture the user's own hostlist (lists/list-general.txt) before we wipe
++  // `dest` below. This is edited in-app (see zapret-iplist.ts) and would
++  // otherwise be silently replaced by upstream's default list on every
++  // Zapret bundle update. We read from the *currently active* bundle dir
++  // (zapretBundleDir(), which may still point at the bundled resources/
++  // copy on a machine's very first update) so nothing is lost even before
++  // runtime/zapret exists yet. The `.backup` companion (the pristine
++  // pre-edit snapshot used for "restore to default") is carried over
++  // untouched — it's a fixed snapshot, not something new updates should
++  // touch.
++  const currentBundleDir = zapretBundleDir()
++  const readPreserved = (name: string): Buffer | null => {
++    const p = path.join(currentBundleDir, 'lists', name)
++    try {
++      return existsSync(p) ? readFileSync(p) : null
++    } catch {
++      return null
++    }
++  }
++  const preservedListGeneral = readPreserved('list-general.txt')
++  const preservedListGeneralBackup = readPreserved('list-general.txt.backup')
++
+   if (existsSync(dest)) {
+     rmSync(dest, { recursive: true, force: true })
+   }
+@@ -142,6 +165,48 @@ export async function installZapretBundle(
+     written++
+   }
+ 
++  // Merge the user's hostlist back in: keep every line the user had
++  // (their own additions, in their own order) and append any *new* lines
++  // shipped in this update's list-general.txt that weren't already
++  // present. Nothing is lost, nothing the user already had is dropped,
++  // and new upstream entries still make it in. Comparison is
++  // case-insensitive/trimmed so re-ordered or re-cased dupes still collapse.
++  if (preservedListGeneral) {
++    const listsDir = path.join(dest, 'lists')
++    const freshPath = path.join(listsDir, 'list-general.txt')
++    const freshContent = existsSync(freshPath) ? readFileSync(freshPath) : Buffer.from('')
++
++    const splitLines = (buf: Buffer): string[] =>
++      buf.toString('utf-8').split(/\r?\n/).map((l) => l.trim())
++
++    const oldLines = splitLines(preservedListGeneral)
++    const newLines = splitLines(freshContent)
++
++    const seen = new Set<string>()
++    const merged: string[] = []
++    let addedFromUpdate = 0
++    for (const line of oldLines) {
++      if (!line || seen.has(line.toLowerCase())) continue
++      seen.add(line.toLowerCase())
++      merged.push(line)
++    }
++    for (const line of newLines) {
++      if (!line || seen.has(line.toLowerCase())) continue
++      seen.add(line.toLowerCase())
++      merged.push(line)
++      addedFromUpdate++
++    }
++
++    mkdirSync(listsDir, { recursive: true })
++    writeFileSync(freshPath, merged.join('\r\n') + (merged.length ? '\r\n' : ''), 'utf-8')
++    log('info', `list-general.txt merged: kept ${oldLines.filter(Boolean).length} existing entries, added ${addedFromUpdate} new from update`)
++  }
++  if (preservedListGeneralBackup) {
++    const listsDir = path.join(dest, 'lists')
++    mkdirSync(listsDir, { recursive: true })
++    writeFileSync(path.join(listsDir, 'list-general.txt.backup'), preservedListGeneralBackup)
++  }
++
+   const startWrapperRe = /start\s+"zapret:\s*%~n0"\s+\/min\s+/gi
+   for (const f of readdirSync(dest)) {
+     if (!/^general.*\.bat$/i.test(f)) continue
+diff --git a/src/main/utils/ipc.ts b/src/main/utils/ipc.ts
+index 22a5c2e..999e441 100644
+--- a/src/main/utils/ipc.ts
++++ b/src/main/utils/ipc.ts
+@@ -34,6 +34,15 @@ import {
+   restoreIpListBackup,
+   type IpListPatch
+ } from '../core/zapret-iplist'
++import {
++  getGameFilterMode,
++  setGameFilterMode,
++  getIpsetFilterSnapshot,
++  setIpsetFilterMode,
++  updateIpsetList,
++  type GameFilterMode,
++  type IpsetFilterMode
++} from '../core/zapret-service-settings'
+ import {
+   checkTgwsUpdate,
+   installTgwsUpdate,
+@@ -222,6 +231,17 @@ export function registerIpcMainHandlers(): void {
+   ipcMain.handle('zapret:clearIpList', h(() => clearIpList()))
+   ipcMain.handle('zapret:restoreIpListBackup', h(() => restoreIpListBackup()))
+ 
++  // ---- Zapret service.bat settings (Game Filter / IPset Filter) ---------
++  ipcMain.handle('zapret:getGameFilter', h(() => getGameFilterMode()))
++  ipcMain.handle('zapret:setGameFilter', h((mode) =>
++    setGameFilterMode(mode as GameFilterMode)
++  ))
++  ipcMain.handle('zapret:getIpsetFilter', h(() => getIpsetFilterSnapshot()))
++  ipcMain.handle('zapret:setIpsetFilter', h((mode) =>
++    setIpsetFilterMode(mode as IpsetFilterMode)
++  ))
++  ipcMain.handle('zapret:updateIpsetList', h(() => updateIpsetList()))
++
+   // ---- Slipgate self-update ----------------------------------------------
+   ipcMain.handle('app:checkUpdate', h((force) => checkAppUpdate(Boolean(force))))
+   ipcMain.handle('app:installUpdate', h((url, expectedVersion) =>
+diff --git a/src/main/utils/template.ts b/src/main/utils/template.ts
+index 28eecf7..c879794 100644
+--- a/src/main/utils/template.ts
++++ b/src/main/utils/template.ts
+@@ -52,8 +52,9 @@ export const defaultConfig: AppConfig = {
+     // Intentionally undefined — UI prompts the user to pick a strategy on
+     // first run instead of silently committing them to one (general.bat).
+     activeStrategy: undefined,
+-    gameFilter: false,
++    gameFilterMode: 'off',
+     ipsetMode: 'loaded',
+-    useService: false
++    useService: false,
++    autoUpdateCheck: true
+   }
+ }
+\ No newline at end of file
+diff --git a/src/renderer/src/components/zapret-service-settings-card.tsx b/src/renderer/src/components/zapret-service-settings-card.tsx
+new file mode 100644
+index 0000000..494bde9
+--- /dev/null
++++ b/src/renderer/src/components/zapret-service-settings-card.tsx
+@@ -0,0 +1,289 @@
++import { useEffect, useRef, useState } from 'react'
++import { toast } from 'sonner'
++import { ChevronDown, ChevronRight, Gamepad2, Loader2, RefreshCw, Settings2 } from 'lucide-react'
++import { Card, CardContent, CardHeader, CardTitle } from '@renderer/components/ui/card'
++import { Button } from '@renderer/components/ui/button'
++import { Switch } from '@renderer/components/ui/switch'
++import { cn, POWER_ON_BANNER_STYLE } from '@renderer/lib/utils'
++import {
++  zapretGetGameFilter,
++  zapretSetGameFilter,
++  zapretGetIpsetFilter,
++  zapretSetIpsetFilter,
++  zapretUpdateIpsetList,
++  type GameFilterMode,
++  type IpsetFilterMode,
++  type IpsetFilterSnapshot
++} from '@renderer/utils/ipc'
++
++interface Props {
++  disabled?: boolean
++  disabledReason?: string
++  autoUpdateCheck: boolean
++  onAutoUpdateCheckChange: (v: boolean) => void
++  onManualCheckUpdate: () => Promise<void>
++}
++
++const GAME_FILTER_OPTIONS: { value: GameFilterMode; label: string; title: string }[] = [
++  { value: 'off', label: 'Выкл', title: 'Не расширять диапазон портов 1024-65535' },
++  { value: 'all', label: 'TCP + UDP', title: 'Расширить фильтр на TCP и UDP порты 1024-65535' },
++  { value: 'tcp', label: 'TCP', title: 'Расширить фильтр только на TCP порты 1024-65535' },
++  { value: 'udp', label: 'UDP', title: 'Расширить фильтр только на UDP порты 1024-65535 (голос в играх/Discord)' }
++]
++
++const IPSET_FILTER_OPTIONS: { value: IpsetFilterMode; label: string; title: string }[] = [
++  { value: 'loaded', label: 'Список', title: 'Фильтр применяется только к загруженным IP из списка' },
++  { value: 'none', label: 'Выкл', title: 'Фильтр не применяется — как будто список пуст из заглушки' },
++  { value: 'any', label: 'Все IP', title: 'Фильтр применяется ко всем IP без ограничений (самый широкий режим)' }
++]
++
++const ZapretServiceSettingsCard: React.FC<Props> = ({
++  disabled = false,
++  disabledReason,
++  autoUpdateCheck,
++  onAutoUpdateCheckChange,
++  onManualCheckUpdate
++}) => {
++  const [open, setOpen] = useState(false)
++  const [gameFilter, setGameFilterState] = useState<GameFilterMode | null>(null)
++  const [ipset, setIpset] = useState<IpsetFilterSnapshot | null>(null)
++  const [busyGame, setBusyGame] = useState(false)
++  const [busyIpset, setBusyIpset] = useState<IpsetFilterMode | 'update' | null>(null)
++  const [checkingUpdate, setCheckingUpdate] = useState(false)
++  const loadedRef = useRef(false)
++
++  const refresh = async (): Promise<void> => {
++    try {
++      const [gf, ip] = await Promise.all([zapretGetGameFilter(), zapretGetIpsetFilter()])
++      setGameFilterState(gf)
++      setIpset(ip)
++    } catch {
++      setGameFilterState(null)
++      setIpset(null)
++    }
++  }
++
++  useEffect(() => {
++    if (loadedRef.current) return
++    loadedRef.current = true
++    void refresh()
++  }, [])
++
++  const pickGameFilter = async (mode: GameFilterMode): Promise<void> => {
++    if (busyGame || mode === gameFilter) return
++    setBusyGame(true)
++    try {
++      const next = await zapretSetGameFilter(mode)
++      setGameFilterState(next)
++      toast.success('Game Filter обновлён', {
++        description: 'Изменения применятся после перезапуска Zapret',
++        style: POWER_ON_BANNER_STYLE
++      })
++    } catch (e) {
++      toast.error('Не удалось изменить Game Filter', {
++        description: e instanceof Error ? e.message : String(e)
++      })
++    } finally {
++      setBusyGame(false)
++    }
++  }
++
++  const pickIpsetFilter = async (mode: IpsetFilterMode): Promise<void> => {
++    if (busyIpset || mode === ipset?.mode) return
++    setBusyIpset(mode)
++    try {
++      const next = await zapretSetIpsetFilter(mode)
++      setIpset(next)
++      toast.success('IPset Filter обновлён', {
++        description: 'Изменения применятся после перезапуска Zapret',
++        style: POWER_ON_BANNER_STYLE
++      })
++    } catch (e) {
++      toast.error('Не удалось изменить IPset Filter', {
++        description: e instanceof Error ? e.message : String(e)
++      })
++    } finally {
++      setBusyIpset(null)
++    }
++  }
++
++  const updateList = async (): Promise<void> => {
++    if (busyIpset) return
++    setBusyIpset('update')
++    const tId = toast.loading('Скачиваем ipset-список…')
++    try {
++      const next = await zapretUpdateIpsetList()
++      setIpset(next)
++      toast.success(`Список обновлён — ${next.lines} записей`, { id: tId, style: POWER_ON_BANNER_STYLE })
++    } catch (e) {
++      toast.error('Не удалось обновить ipset-список', {
++        id: tId,
++        description: e instanceof Error ? e.message : String(e)
++      })
++    } finally {
++      setBusyIpset(null)
++    }
++  }
++
++  const runManualCheck = async (): Promise<void> => {
++    if (checkingUpdate) return
++    setCheckingUpdate(true)
++    try {
++      await onManualCheckUpdate()
++    } finally {
++      setCheckingUpdate(false)
++    }
++  }
++
++  return (
++    <Card>
++      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
++        <div className="min-w-0 flex-1">
++          <CardTitle className="flex items-center gap-2">
++            <Settings2 className="h-4 w-4 text-muted-foreground" />
++            Настройки Zapret
++          </CardTitle>
++        </div>
++        <Button
++          variant={open ? 'secondary' : 'outline'}
++          size="sm"
++          disabled={disabled}
++          title={disabled ? disabledReason : undefined}
++          onClick={() => setOpen((v) => !v)}
++          className="shrink-0"
++        >
++          {open
++            ? <><ChevronDown className="h-3.5 w-3.5" /> Свернуть</>
++            : <><ChevronRight className="h-3.5 w-3.5" /> Открыть</>}
++        </Button>
++      </CardHeader>
++
++      {open && (
++        <CardContent className="space-y-5 pt-0">
++          {/* ---- Game Filter ---- */}
++          <div>
++            <div className="mb-2 flex items-center gap-1.5 text-xs uppercase tracking-wide text-muted-foreground">
++              <Gamepad2 className="h-3.5 w-3.5" />
++              Game Filter
++            </div>
++            <p className="mb-2 text-xs text-muted-foreground">
++              Расширяет фильтрацию на порты 1024-65535 — помогает с играми и голосом в Discord,
++              которые используют случайные порты.
++            </p>
++            {gameFilter === null ? (
++              <p className="text-sm text-muted-foreground">Не удалось прочитать настройку.</p>
++            ) : (
++              <div className="flex flex-wrap gap-1.5">
++                {GAME_FILTER_OPTIONS.map((opt) => {
++                  const active = gameFilter === opt.value
++                  return (
++                    <button
++                      key={opt.value}
++                      onClick={() => { void pickGameFilter(opt.value) }}
++                      disabled={disabled || busyGame}
++                      title={opt.title}
++                      className={cn(
++                        'rounded-md border px-2.5 py-1 text-xs font-medium transition',
++                        active ? 'border-primary bg-primary/10 text-foreground' : 'border-border hover:bg-accent/30 text-muted-foreground',
++                        (disabled || busyGame) && 'pointer-events-none opacity-50'
++                      )}
++                    >
++                      {busyGame && active ? <Loader2 className="h-3 w-3 animate-spin inline" /> : opt.label}
++                    </button>
++                  )
++                })}
++              </div>
++            )}
++          </div>
++
++          {/* ---- IPset Filter ---- */}
++          <div>
++            <div className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">
++              IPset Filter
++              {ipset && (
++                <span className="ml-1.5 normal-case font-normal">
++                  ({ipset.lines} IP в списке)
++                </span>
++              )}
++            </div>
++            <p className="mb-2 text-xs text-muted-foreground">
++              Определяет, к каким IP применяется game-фильтр: только к списку ниже, ни к одному, или ко всем.
++            </p>
++            {ipset === null ? (
++              <p className="text-sm text-muted-foreground">Не удалось прочитать lists/ipset-all.txt.</p>
++            ) : (
++              <div className="flex flex-wrap items-center gap-1.5">
++                {IPSET_FILTER_OPTIONS.map((opt) => {
++                  const active = ipset.mode === opt.value
++                  const busy = busyIpset === opt.value
++                  return (
++                    <button
++                      key={opt.value}
++                      onClick={() => { void pickIpsetFilter(opt.value) }}
++                      disabled={disabled || !!busyIpset || (opt.value === 'loaded' && !ipset.hasBackup && ipset.mode !== 'loaded')}
++                      title={
++                        opt.value === 'loaded' && !ipset.hasBackup && ipset.mode !== 'loaded'
++                          ? 'Сначала загрузите список кнопкой «Обновить список»'
++                          : opt.title
++                      }
++                      className={cn(
++                        'rounded-md border px-2.5 py-1 text-xs font-medium transition',
++                        active ? 'border-primary bg-primary/10 text-foreground' : 'border-border hover:bg-accent/30 text-muted-foreground',
++                        (disabled || !!busyIpset) && 'pointer-events-none opacity-50'
++                      )}
++                    >
++                      {busy ? <Loader2 className="h-3 w-3 animate-spin inline" /> : opt.label}
++                    </button>
++                  )
++                })}
++                <Button
++                  size="sm"
++                  variant="ghost"
++                  onClick={() => { void updateList() }}
++                  disabled={disabled || !!busyIpset}
++                  className="ml-1"
++                  title="Скачать свежий ipset-список у Flowseal и сделать его активным"
++                >
++                  {busyIpset === 'update' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
++                  Обновить список
++                </Button>
++              </div>
++            )}
++          </div>
++
++          {/* ---- Auto-update ---- */}
++          <div>
++            <div className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">
++              Проверка обновлений Zapret
++            </div>
++            <div className="flex items-center justify-between gap-3 rounded-md border border-border p-2.5">
++              <div className="min-w-0">
++                <div className="text-sm font-medium">Проверять автоматически</div>
++                <div className="text-xs text-muted-foreground">
++                  При открытии этой страницы Slipgate сам проверит, вышла ли новая версия Zapret
++                </div>
++              </div>
++              <Switch
++                checked={autoUpdateCheck}
++                disabled={disabled}
++                onCheckedChange={onAutoUpdateCheckChange}
++              />
++            </div>
++            <Button
++              size="sm"
++              variant="outline"
++              onClick={() => { void runManualCheck() }}
++              disabled={disabled || checkingUpdate}
++              className="mt-2"
++            >
++              {checkingUpdate ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
++              Проверить сейчас
++            </Button>
++          </div>
++        </CardContent>
++      )}
++    </Card>
++  )
++}
++
++export default ZapretServiceSettingsCard
+diff --git a/src/renderer/src/pages/zapret.tsx b/src/renderer/src/pages/zapret.tsx
+index 0f205fb..2027c4c 100644
+--- a/src/renderer/src/pages/zapret.tsx
++++ b/src/renderer/src/pages/zapret.tsx
+@@ -22,6 +22,7 @@ import { cn, BUNDLED_ZAPRET_VERSION, POWER_ON_BANNER_STYLE, POWER_OFF_BANNER_STY
+ import BasePage from '@renderer/components/base/base-page'
+ import SwitcherCard from '@renderer/components/switcher-card'
+ import ZapretIpListCard from '@renderer/components/zapret-iplist-card'
++import ZapretServiceSettingsCard from '@renderer/components/zapret-service-settings-card'
+ 
+ const Zapret: React.FC = () => {
+   const status = useZapretStore((s) => s.status)
+@@ -50,6 +51,26 @@ const Zapret: React.FC = () => {
+     zapretListStrategies().then(setStrategies).catch(() => setStrategies([]))
+   }
+ 
++  const runCheckUpdate = async (force = false): Promise<void> => {
++    // Don't await; banner just stays hidden if the API call fails (rate-
++    // limit, offline, etc.) — surfacing a network error here would be
++    // noise for users who never asked to check.
++    const info = await zapretCheckUpdate(force).catch(() => null)
++    setUpdateInfo(info)
++    // Manual trigger (the "Проверить сейчас" button) — give explicit
++    // feedback either way, since silence would look broken when the
++    // user just pressed a button.
++    if (force) {
++      if (!info) {
++        toast.error('Не удалось проверить обновления Zapret')
++      } else if (info.hasUpdate) {
++        toast.info(`Доступна новая версия Zapret — v${info.latest}`)
++      } else {
++        toast.success('У вас последняя версия Zapret')
++      }
++    }
++  }
++
+   const startTest = (): void => {
+     if (useZapretTestStore.getState().isRunning) return
+     // Optimistically flip isRunning so the UI dims immediately — the
+@@ -70,10 +91,9 @@ const Zapret: React.FC = () => {
+ 
+   useEffect(() => {
+     refreshStrategies()
+-    // Don't await; banner just stays hidden if the API call fails (rate-
+-    // limit, offline, etc.) — surfacing a network error here would be
+-    // noise for users who never asked to check.
+-    zapretCheckUpdate(false).then(setUpdateInfo).catch(() => setUpdateInfo(null))
++    if (zapret?.autoUpdateCheck !== false) {
++      void runCheckUpdate(false)
++    }
+ 
+     const t = setTimeout(() => {
+       if (autoTestStartedRef.current) return
+@@ -227,6 +247,21 @@ const Zapret: React.FC = () => {
+         }
+       />
+ 
++      <ZapretServiceSettingsCard
++        disabled={isTestRunning || status.state === 'starting' || status.state === 'stopping'}
++        disabledReason={
++          isTestRunning
++            ? 'Идёт тестирование стратегий — настройки временно недоступны'
++            : 'Подождите завершения переключения Zapret'
++        }
++        autoUpdateCheck={zapret?.autoUpdateCheck !== false}
++        onAutoUpdateCheckChange={(v) => {
++          if (!zapret) return
++          void patchAppConfig({ zapret: { ...zapret, autoUpdateCheck: v } })
++        }}
++        onManualCheckUpdate={() => runCheckUpdate(true)}
++      />
++
+       <Card>
+         <CardHeader
+           className={cn(
+diff --git a/src/renderer/src/utils/ipc.ts b/src/renderer/src/utils/ipc.ts
+index 08e19d7..60bac15 100644
+--- a/src/renderer/src/utils/ipc.ts
++++ b/src/renderer/src/utils/ipc.ts
+@@ -117,7 +117,7 @@ export const zapretGetStrategyTestResults = (): Promise<StrategyTestReport | nul
+ export const zapretIsStrategyTestRunning = (): Promise<boolean> =>
+   invoke('zapret:isStrategyTestRunning')
+ 
+-// ---- Zapret IP list (ipset-all.txt) ----------------------------------------
++// ---- Zapret hostlist (list-general.txt) ------------------------------------
+ export interface CuratedIpSet {
+   id: string
+   name: string
+@@ -144,6 +144,24 @@ export const zapretClearIpList = (): Promise<IpListSnapshot> => invoke('zapret:c
+ export const zapretRestoreIpListBackup = (): Promise<IpListSnapshot> =>
+   invoke('zapret:restoreIpListBackup')
+ 
++// ---- Zapret service.bat settings (Game Filter / IPset Filter) --------------
++export type GameFilterMode = 'off' | 'all' | 'tcp' | 'udp'
++export type IpsetFilterMode = 'none' | 'loaded' | 'any'
++export interface IpsetFilterSnapshot {
++  mode: IpsetFilterMode
++  lines: number
++  hasBackup: boolean
++}
++export const zapretGetGameFilter = (): Promise<GameFilterMode> => invoke('zapret:getGameFilter')
++export const zapretSetGameFilter = (mode: GameFilterMode): Promise<GameFilterMode> =>
++  invoke('zapret:setGameFilter', mode)
++export const zapretGetIpsetFilter = (): Promise<IpsetFilterSnapshot> =>
++  invoke('zapret:getIpsetFilter')
++export const zapretSetIpsetFilter = (mode: IpsetFilterMode): Promise<IpsetFilterSnapshot> =>
++  invoke('zapret:setIpsetFilter', mode)
++export const zapretUpdateIpsetList = (): Promise<IpsetFilterSnapshot> =>
++  invoke('zapret:updateIpsetList')
++
+ // ---- Slipgate self-update ---------------------------------------------------
+ export interface AppUpdateInfo {
+   installed: string
+diff --git a/src/shared/types/app.d.ts b/src/shared/types/app.d.ts
+index 5c14436..1c314dc 100644
+--- a/src/shared/types/app.d.ts
++++ b/src/shared/types/app.d.ts
+@@ -77,10 +77,14 @@ interface ZapretConfig {
+   enabled: boolean
+   autoStart?: boolean
+   activeStrategy?: string          // file name of the .bat strategy
+-  gameFilter?: boolean             // enable UDP/TCP >1023 filter
++  gameFilterMode?: 'off' | 'all' | 'tcp' | 'udp'   // mirrors service.bat's Game Filter menu
+   ipsetMode?: 'none' | 'loaded' | 'any'
+   bundlePath?: string              // override path to unpacked zapret folder
+   useService?: boolean             // installed as Windows service
++  // Slipgate's own background check for new Zapret bundle releases (the
++  // "Доступно обновление Zapret" banner). Distinct from service.bat's own
++  // legacy update checker, which Slipgate always skips via NO_UPDATE_CHECK.
++  autoUpdateCheck?: boolean
+   // Version of the unpacked Flowseal/zapret-discord-youtube bundle in
+   // runtime/zapret. Set when the user installs/updates from the auto-
+   // updater. Used to decide whether a newer GitHub release exists.

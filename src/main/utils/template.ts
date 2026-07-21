@@ -52,8 +52,9 @@ export const defaultConfig: AppConfig = {
     // Intentionally undefined — UI prompts the user to pick a strategy on
     // first run instead of silently committing them to one (general.bat).
     activeStrategy: undefined,
-    gameFilter: false,
+    gameFilterMode: 'off',
     ipsetMode: 'loaded',
-    useService: false
+    useService: false,
+    autoUpdateCheck: true
   }
 }
