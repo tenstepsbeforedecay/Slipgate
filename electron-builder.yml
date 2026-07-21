@@ -84,8 +84,7 @@ mac:
     - NSCameraUsageDescription: Application requests access to the device's camera.
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  artifactName: ${productName}_${arch}.${ext}
+    - NSDownloadsFolderUsageDescription: Application requests access to the device's Downloads folder.
 pkg:
   allowAnywhere: false
   allowCurrentUserHome: false
@@ -112,4 +111,8 @@ pacman:
   afterInstall: 'build/linux/postinst'
   artifactName: ${productName}-${version}_${arch}.pkg.tar.xz
 npmRebuild: true
-publish: []
+publish:
+  provider: github
+  owner: reb0oornalexey
+  repo: Slipgate
+  releaseType: release
