@@ -117,7 +117,7 @@ export const zapretGetStrategyTestResults = (): Promise<StrategyTestReport | nul
 export const zapretIsStrategyTestRunning = (): Promise<boolean> =>
   invoke('zapret:isStrategyTestRunning')
 
-// ---- Zapret IP list (ipset-all.txt) ----------------------------------------
+// ---- Zapret hostlist (list-general.txt) ------------------------------------
 export interface CuratedIpSet {
   id: string
   name: string
@@ -143,6 +143,24 @@ export const zapretApplyIpListPatch = (patch: IpListPatch): Promise<IpListSnapsh
 export const zapretClearIpList = (): Promise<IpListSnapshot> => invoke('zapret:clearIpList')
 export const zapretRestoreIpListBackup = (): Promise<IpListSnapshot> =>
   invoke('zapret:restoreIpListBackup')
+
+// ---- Zapret service.bat settings (Game Filter / IPset Filter) --------------
+export type GameFilterMode = 'off' | 'all' | 'tcp' | 'udp'
+export type IpsetFilterMode = 'none' | 'loaded' | 'any'
+export interface IpsetFilterSnapshot {
+  mode: IpsetFilterMode
+  lines: number
+  hasBackup: boolean
+}
+export const zapretGetGameFilter = (): Promise<GameFilterMode> => invoke('zapret:getGameFilter')
+export const zapretSetGameFilter = (mode: GameFilterMode): Promise<GameFilterMode> =>
+  invoke('zapret:setGameFilter', mode)
+export const zapretGetIpsetFilter = (): Promise<IpsetFilterSnapshot> =>
+  invoke('zapret:getIpsetFilter')
+export const zapretSetIpsetFilter = (mode: IpsetFilterMode): Promise<IpsetFilterSnapshot> =>
+  invoke('zapret:setIpsetFilter', mode)
+export const zapretUpdateIpsetList = (): Promise<IpsetFilterSnapshot> =>
+  invoke('zapret:updateIpsetList')
 
 // ---- Slipgate self-update ---------------------------------------------------
 export interface AppUpdateInfo {

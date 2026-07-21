@@ -18,6 +18,17 @@
 </p>
 
 ---
+## Поддержка
+
+Поддержать АВТОРА Fork'a https://www.donationalerts.com/r/reb0oorn
+
+![QR-код для быстрой ссылки](resources/support_QR.png)
+
+## Авторские изменения 
+
+Добавлен пункт настроект в Zapret (теперь мы можем прямо с приложения менять game filter и IPset filter)
+
+При обновлении Zapret'a ваши сайты добавленные в list-general теперь не перезаписываются, ваши сайты сливаются с сайтами добавленными в Zapret теперь заново не надо будет вставлять свои сайты
 
 ## Что это
 
@@ -168,3 +179,14 @@ pnpm format       # prettier
 ## Авторы
 
 Разработка и поддержка — **lazzy & cherry**.
+
+FORK by **reb0oorn**.
+
+## Поддержка
+
+Поддержать АВТОРА Fork'a https://www.donationalerts.com/r/reb0oorn
+
+![QR-код для быстрой ссылки](resources/support_QR.png)
+
+
+

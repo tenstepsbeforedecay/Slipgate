@@ -1,0 +1,49 @@
+name: Build and publish Slipgate releases
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - '*.*.*'
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    name: Build Linux release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install -g pnpm@10.33.0
+      - run: sudo apt-get update && sudo apt-get install -y rpm ruby-full build-essential
+      - run: pnpm install
+      - run: pnpm exec electron-vite build
+      - run: pnpm exec electron-builder --linux deb rpm --publish always
+
+  build-windows:
+    name: Build Windows release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install -g pnpm@10.33.0
+      - run: pnpm install
+      - run: pnpm exec electron-vite build
+      - run: pnpm exec electron-builder --win --publish always
+
+  build-macos:
+    name: Build macOS release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install -g pnpm@10.33.0
+      - run: pnpm install
+      - run: pnpm exec electron-vite build
+      - run: pnpm exec electron-builder --mac --publish always

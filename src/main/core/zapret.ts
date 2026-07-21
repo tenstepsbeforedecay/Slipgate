@@ -122,6 +122,29 @@ export async function installZapretBundle(
   }
 
   const dest = zapretRuntimeDir()
+
+  // Capture the user's own hostlist (lists/list-general.txt) before we wipe
+  // `dest` below. This is edited in-app (see zapret-iplist.ts) and would
+  // otherwise be silently replaced by upstream's default list on every
+  // Zapret bundle update. We read from the *currently active* bundle dir
+  // (zapretBundleDir(), which may still point at the bundled resources/
+  // copy on a machine's very first update) so nothing is lost even before
+  // runtime/zapret exists yet. The `.backup` companion (the pristine
+  // pre-edit snapshot used for "restore to default") is carried over
+  // untouched — it's a fixed snapshot, not something new updates should
+  // touch.
+  const currentBundleDir = zapretBundleDir()
+  const readPreserved = (name: string): Buffer | null => {
+    const p = path.join(currentBundleDir, 'lists', name)
+    try {
+      return existsSync(p) ? readFileSync(p) : null
+    } catch {
+      return null
+    }
+  }
+  const preservedListGeneral = readPreserved('list-general.txt')
+  const preservedListGeneralBackup = readPreserved('list-general.txt.backup')
+
   if (existsSync(dest)) {
     rmSync(dest, { recursive: true, force: true })
   }
@@ -140,6 +163,48 @@ export async function installZapretBundle(
     mkdirSync(path.dirname(out), { recursive: true })
     writeFileSync(out, e.getData())
     written++
+  }
+
+  // Merge the user's hostlist back in: keep every line the user had
+  // (their own additions, in their own order) and append any *new* lines
+  // shipped in this update's list-general.txt that weren't already
+  // present. Nothing is lost, nothing the user already had is dropped,
+  // and new upstream entries still make it in. Comparison is
+  // case-insensitive/trimmed so re-ordered or re-cased dupes still collapse.
+  if (preservedListGeneral) {
+    const listsDir = path.join(dest, 'lists')
+    const freshPath = path.join(listsDir, 'list-general.txt')
+    const freshContent = existsSync(freshPath) ? readFileSync(freshPath) : Buffer.from('')
+
+    const splitLines = (buf: Buffer): string[] =>
+      buf.toString('utf-8').split(/\r?\n/).map((l) => l.trim())
+
+    const oldLines = splitLines(preservedListGeneral)
+    const newLines = splitLines(freshContent)
+
+    const seen = new Set<string>()
+    const merged: string[] = []
+    let addedFromUpdate = 0
+    for (const line of oldLines) {
+      if (!line || seen.has(line.toLowerCase())) continue
+      seen.add(line.toLowerCase())
+      merged.push(line)
+    }
+    for (const line of newLines) {
+      if (!line || seen.has(line.toLowerCase())) continue
+      seen.add(line.toLowerCase())
+      merged.push(line)
+      addedFromUpdate++
+    }
+
+    mkdirSync(listsDir, { recursive: true })
+    writeFileSync(freshPath, merged.join('\r\n') + (merged.length ? '\r\n' : ''), 'utf-8')
+    log('info', `list-general.txt merged: kept ${oldLines.filter(Boolean).length} existing entries, added ${addedFromUpdate} new from update`)
+  }
+  if (preservedListGeneralBackup) {
+    const listsDir = path.join(dest, 'lists')
+    mkdirSync(listsDir, { recursive: true })
+    writeFileSync(path.join(listsDir, 'list-general.txt.backup'), preservedListGeneralBackup)
   }
 
   const startWrapperRe = /start\s+"zapret:\s*%~n0"\s+\/min\s+/gi

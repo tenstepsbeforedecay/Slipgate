@@ -22,6 +22,7 @@ import { cn, BUNDLED_ZAPRET_VERSION, POWER_ON_BANNER_STYLE, POWER_OFF_BANNER_STY
 import BasePage from '@renderer/components/base/base-page'
 import SwitcherCard from '@renderer/components/switcher-card'
 import ZapretIpListCard from '@renderer/components/zapret-iplist-card'
+import ZapretServiceSettingsCard from '@renderer/components/zapret-service-settings-card'
 
 const Zapret: React.FC = () => {
   const status = useZapretStore((s) => s.status)
@@ -50,6 +51,26 @@ const Zapret: React.FC = () => {
     zapretListStrategies().then(setStrategies).catch(() => setStrategies([]))
   }
 
+  const runCheckUpdate = async (force = false): Promise<void> => {
+    // Don't await; banner just stays hidden if the API call fails (rate-
+    // limit, offline, etc.) — surfacing a network error here would be
+    // noise for users who never asked to check.
+    const info = await zapretCheckUpdate(force).catch(() => null)
+    setUpdateInfo(info)
+    // Manual trigger (the "Проверить сейчас" button) — give explicit
+    // feedback either way, since silence would look broken when the
+    // user just pressed a button.
+    if (force) {
+      if (!info) {
+        toast.error('Не удалось проверить обновления Zapret')
+      } else if (info.hasUpdate) {
+        toast.info(`Доступна новая версия Zapret — v${info.latest}`)
+      } else {
+        toast.success('У вас последняя версия Zapret')
+      }
+    }
+  }
+
   const startTest = (): void => {
     if (useZapretTestStore.getState().isRunning) return
     // Optimistically flip isRunning so the UI dims immediately — the
@@ -70,10 +91,9 @@ const Zapret: React.FC = () => {
 
   useEffect(() => {
     refreshStrategies()
-    // Don't await; banner just stays hidden if the API call fails (rate-
-    // limit, offline, etc.) — surfacing a network error here would be
-    // noise for users who never asked to check.
-    zapretCheckUpdate(false).then(setUpdateInfo).catch(() => setUpdateInfo(null))
+    if (zapret?.autoUpdateCheck !== false) {
+      void runCheckUpdate(false)
+    }
 
     const t = setTimeout(() => {
       if (autoTestStartedRef.current) return
@@ -225,6 +245,21 @@ const Zapret: React.FC = () => {
             ? 'Идёт тестирование стратегий — управление списком временно недоступно'
             : 'Подождите завершения переключения Zapret'
         }
+      />
+
+      <ZapretServiceSettingsCard
+        disabled={isTestRunning || status.state === 'starting' || status.state === 'stopping'}
+        disabledReason={
+          isTestRunning
+            ? 'Идёт тестирование стратегий — настройки временно недоступны'
+            : 'Подождите завершения переключения Zapret'
+        }
+        autoUpdateCheck={zapret?.autoUpdateCheck !== false}
+        onAutoUpdateCheckChange={(v) => {
+          if (!zapret) return
+          void patchAppConfig({ zapret: { ...zapret, autoUpdateCheck: v } })
+        }}
+        onManualCheckUpdate={() => runCheckUpdate(true)}
       />
 
       <Card>

@@ -35,6 +35,15 @@ import {
   type IpListPatch
 } from '../core/zapret-iplist'
 import {
+  getGameFilterMode,
+  setGameFilterMode,
+  getIpsetFilterSnapshot,
+  setIpsetFilterMode,
+  updateIpsetList,
+  type GameFilterMode,
+  type IpsetFilterMode
+} from '../core/zapret-service-settings'
+import {
   checkTgwsUpdate,
   installTgwsUpdate,
   dismissTgwsUpdate
@@ -221,6 +230,17 @@ export function registerIpcMainHandlers(): void {
   ))
   ipcMain.handle('zapret:clearIpList', h(() => clearIpList()))
   ipcMain.handle('zapret:restoreIpListBackup', h(() => restoreIpListBackup()))
+
+  // ---- Zapret service.bat settings (Game Filter / IPset Filter) ---------
+  ipcMain.handle('zapret:getGameFilter', h(() => getGameFilterMode()))
+  ipcMain.handle('zapret:setGameFilter', h((mode) =>
+    setGameFilterMode(mode as GameFilterMode)
+  ))
+  ipcMain.handle('zapret:getIpsetFilter', h(() => getIpsetFilterSnapshot()))
+  ipcMain.handle('zapret:setIpsetFilter', h((mode) =>
+    setIpsetFilterMode(mode as IpsetFilterMode)
+  ))
+  ipcMain.handle('zapret:updateIpsetList', h(() => updateIpsetList()))
 
   // ---- Slipgate self-update ----------------------------------------------
   ipcMain.handle('app:checkUpdate', h((force) => checkAppUpdate(Boolean(force))))

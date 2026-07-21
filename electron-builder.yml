@@ -58,14 +58,14 @@ win:
   target:
     - nsis
     - 7z
-  artifactName: ${productName}_${arch}-portable.${ext}
+  artifactName: ${productName}-${version}_${arch}-portable.${ext}
   # Embed an UAC manifest in Slipgate.exe so Windows always prompts for
   # admin elevation when launched. Required because zapret's winws.exe
   # opens WinDivert which needs SYSTEM-level packet capture rights;
   # without elevation on the parent we'd UAC-prompt on every Zapret toggle.
   requestedExecutionLevel: requireAdministrator
 nsis:
-  artifactName: ${productName}_${arch}.${ext}
+  artifactName: ${productName}-${version}_${arch}.${ext}
   uninstallDisplayName: ${productName}
   allowToChangeInstallationDirectory: true
   oneClick: false
@@ -79,12 +79,12 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   notarize: false
+  artifactName: ${productName}-${version}_${arch}.${ext}
   extendInfo:
     - NSCameraUsageDescription: Application requests access to the device's camera.
     - NSMicrophoneUsageDescription: Application requests access to the device's microphone.
     - NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
-    - NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
-  artifactName: ${productName}_${arch}.${ext}
+    - NSDownloadsFolderUsageDescription: Application requests access to the device's Downloads folder.
 pkg:
   allowAnywhere: false
   allowCurrentUserHome: false
@@ -102,13 +102,17 @@ linux:
     - pacman
   maintainer: Slipgate
   category: Utility
-  artifactName: ${productName}_${arch}.${ext}
+  artifactName: ${productName}-${version}_${arch}.${ext}
 deb:
   afterInstall: 'build/linux/postinst'
 rpm:
   afterInstall: 'build/linux/postinst'
 pacman:
   afterInstall: 'build/linux/postinst'
-  artifactName: ${productName}_${arch}.pkg.tar.xz
+  artifactName: ${productName}-${version}_${arch}.pkg.tar.xz
 npmRebuild: true
-publish: []
+publish:
+  provider: github
+  owner: reb0oornalexey
+  repo: Slipgate
+  releaseType: release
