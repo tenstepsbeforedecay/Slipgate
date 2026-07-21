@@ -15,12 +15,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'pnpm'
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 10
-      - run: sudo apt-get update && sudo apt-get install -y rpm
+      - run: corepack enable && corepack prepare pnpm@10.33.0 --activate
+      - run: sudo apt-get update && sudo apt-get install -y rpm ruby-full build-essential
       - run: pnpm install
       - run: pnpm exec electron-builder --linux deb rpm --publish always
 
@@ -31,11 +29,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'pnpm'
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 10
+      - run: corepack enable && corepack prepare pnpm@10.33.0 --activate
       - run: pnpm install
       - run: pnpm exec electron-builder --win --publish always
 
@@ -46,10 +42,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'pnpm'
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 10
+      - run: corepack enable && corepack prepare pnpm@10.33.0 --activate
       - run: pnpm install
       - run: pnpm exec electron-builder --mac --publish always
