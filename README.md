@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./src/renderer/src/assets/logo_black.svg" alt="Логотип Slipgate" width="88" />
+  <img src="./src/renderer/src/assets/logo_black.svg" alt="Логотип Slipgate" width="144" />
 </p>
 
 <h1 align="center">Slipgate</h1>
