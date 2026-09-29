@@ -42,6 +42,8 @@
 
 ---
 
+> [!NOTE]
+>
 > **Отдельное большое спасибо [Flowseal](https://github.com/flowseal)** за разработку и поддержку [TG WS Proxy](https://github.com/Flowseal/tg-ws-proxy) и развитие проекта [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube): стратегий обхода DPI, сценариев запуска и инструментов настройки для Windows.
 >
 > Эти проекты лежат в основе сетевых возможностей Slipgate. Спасибо за открытый код, постоянную работу над инструментами обхода блокировок и вклад в свободный доступ к интернету.
