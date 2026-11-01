@@ -20,7 +20,7 @@
 <p align="center">
   <a href="https://github.com/tenstepsbeforedecay/Slipgate/releases/latest"><strong>Скачать для Windows</strong></a>
   &nbsp; · &nbsp;
-  <a href="https://t.me/slipgate_support_bot"><strong>Связаться в Telegram</strong></a>
+  <a href="https://t.me/slipgate_help"><strong>Связаться в Telegram</strong></a>
 </p>
 
 > [!TIP]
@@ -258,7 +258,7 @@ Slipgate проверяет обновления **трёх компоненто
 - очистка отображаемого журнала;
 - сохранение логов в файл для разбора ошибки.
 
-Если нужна помощь, напишите в [Telegram-бот](https://web.telegram.org/k/#@slipgate_support_bot). Укажите версии Slipgate и Windows, используемый компонент и шаги воспроизведения. Перед отправкой логов проверьте их на личные данные.
+Если нужна помощь, напишите в [Telegram](https://t.me/slipgate_help). Укажите версии Slipgate и Windows, используемый компонент и шаги воспроизведения. Перед отправкой логов проверьте их на личные данные.
 
 <a id="start"></a>
 
@@ -345,7 +345,7 @@ Slipgate распространяется под **GNU General Public License v3
 | [WinDivert](https://reqrypt.org/windivert.html)                                         | Перехват сетевых пакетов в Windows.                                                                                 |
 | [Mihomo Party / Sparkle](https://github.com/mihomo-party-org/mihomo-party)              | Историческая основа структуры проекта и части соглашений сборки.                                                    |
 
-Предложения по развитию приложения также можно отправить в [Telegram-бот](https://web.telegram.org/k/#@slipgate_support_bot). Вклад в код распространяется на условиях лицензии проекта.
+Предложения по развитию приложения также можно отправить в [Telegram](https://t.me/slipgate_help).
 
 ---
 
