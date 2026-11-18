@@ -1,5 +1,7 @@
 <p align="center">
-  <img src="./src/renderer/src/assets/logo_black.svg" alt="Логотип Slipgate" width="144" />
+  <a href="https://t.me/nightvision_mode"><img src="./readme/assets/slipgate-logo.png" alt="Логотип Slipgate" width="144" /></a>
+  &nbsp;
+  <a href="https://t.me/nightvision_mode"><img src="./readme/assets/nightvision.mode.png" alt="Логотип NightVision Mode" width="144" /></a>
 </p>
 
 <h1 align="center">Slipgate</h1>
